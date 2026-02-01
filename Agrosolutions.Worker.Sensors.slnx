@@ -1,8 +1,8 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/AgrosolutionsWorkerSensors.Application/AgrosolutionsWorkerSensors.Application.csproj" />
     <Project Path="src/AgrosolutionsWorkerSensors.Domain/AgrosolutionsWorkerSensors.Domain.csproj" />
-    <Project Path="src/AgrosolutionsWorkerSensors.Host/AgrosolutionsWorkerSensors.Host.csproj" />
+    <Project Path="src/AgrosolutionsWorkerSensors.Generator/AgrosolutionsWorkerSensors.Generator.csproj" />
+    <Project Path="src/AgrosolutionsWorkerSensors.Host/AgrosolutionsWorkerSensors.Registration.csproj" />
     <Project Path="src/AgrosolutionsWorkerSensors.Infrastructure/AgrosolutionsWorkerSensors.Infrastructure.csproj" />
   </Folder>
 </Solution>
