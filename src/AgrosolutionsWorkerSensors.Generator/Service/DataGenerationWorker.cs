@@ -69,7 +69,7 @@ namespace AgrosolutionsWorkerSensors.Generator.Service
                     TimeStamp = DateTime.UtcNow
                 };
 
-                var response = await client.PostAsJsonAsync("/api/ingestion", request, token);
+                var response = await client.PostAsJsonAsync("/api/ingestion/sensor", request, token);
 
                 if (!response.IsSuccessStatusCode)
                     _logger.LogWarning($"Falha ao enviar dados do sensor {sensor.SensorId}. Status: {response.StatusCode}");

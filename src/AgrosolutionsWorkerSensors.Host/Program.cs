@@ -1,6 +1,7 @@
 
 using AgrosolutionsWorkerSensors.Host;
 using AgrosolutionsWorkerSensors.Infrastructure.Data;
+using AgrosolutionsWorkerSensors.Registration.Services;
 using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
 
@@ -13,20 +14,8 @@ builder.Services.AddDbContext<SensorContext>(opt =>
     opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
 
-//// Redis
-//builder.Services.AddSingleton<IConnectionMultiplexer>(
-//    _ => ConnectionMultiplexer.Connect("localhost:6379"));
-
-
-// RabbitMQ
-builder.Services.AddSingleton<IConnectionFactory>(sp =>
-{
-    return new ConnectionFactory { HostName = "localhost" };
-});
-
-
 // Registrar o Service que usará a conexão
-builder.Services.AddHostedService<Worker>();
+builder.Services.AddHostedService<RegistrationWorker>();
 
 
 var host = builder.Build();
