@@ -31,7 +31,7 @@ public class RegistrationWorker : BackgroundService
         var factory = new ConnectionFactory { HostName = _configuration["RabbitMQ:Host"] ?? "localhost" };
         _connection = factory.CreateConnection();
         _channel = _connection.CreateModel();
-        _channel.QueueDeclare(queue: "register_sensor", durable: true, exclusive: false, autoDelete: false, arguments: null);
+        _channel.QueueDeclare(queue: _configuration["RabbitMQ:QueueName"] ?? "register_sensor", durable: true, exclusive: false, autoDelete: false, arguments: null);
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -61,7 +61,7 @@ public class RegistrationWorker : BackgroundService
             }
         };
 
-        _channel.BasicConsume(queue: "register_sensor", autoAck: false, consumer: consumer);
+        _channel.BasicConsume(queue: _configuration["RabbitMQ:QueueName"] ?? "register_sensor", autoAck: false, consumer: consumer);
         return Task.CompletedTask;
     }
 

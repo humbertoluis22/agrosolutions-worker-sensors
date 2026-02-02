@@ -8,24 +8,16 @@ using System.Net.Http.Json;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// 1. Configurar o Banco de Dados
-// Ele precisa ler o banco para saber quais sensores existem
 builder.Services.AddDbContext<SensorContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// 2. Configurar o HttpClient
-// Cria um cliente HTTP nomeado "ApiRaw" já com o endereço base configurado
 builder.Services.AddHttpClient("ApiRaw", client =>
 {
-    // Lê a URL do appsettings.json ou usa localhost:5000 como fallback
     string url = builder.Configuration["ApiRawUrl"] ?? "http://localhost:5198";
-    client.BaseAddress = new Uri(url);
-});
-
-builder.Services.AddHttpClient("ApiRaw", client =>
-{
-    client.BaseAddress = new Uri("http://localhost:5198"); // URL da sua API
-    client.Timeout = TimeSpan.FromSeconds(10);
+    client.BaseAddress = new Uri(url); // URL da sua API
+    int intervalSecond = builder.Configuration
+    .GetValue<int>("GenerationSettings:IntervalSeconds", 16);
+    client.Timeout = TimeSpan.FromSeconds(intervalSecond);
 });
 
 builder.Services.AddHostedService<DataGenerationWorker>();
