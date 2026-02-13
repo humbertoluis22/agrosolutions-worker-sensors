@@ -11,12 +11,18 @@ using StackExchange.Redis;
 var builder = Host.CreateApplicationBuilder(args);
 // PostgreSQL
 builder.Services.AddDbContext<SensorContext>(opt =>
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 
-// Registrar o Service que usará a conexão
+// Registrar o Service que usarï¿½ a conexï¿½o
 builder.Services.AddHostedService<RegistrationWorker>();
 
-
 var host = builder.Build();
+
+using (var scope = host.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<SensorContext>();
+    db.Database.Migrate();
+}
+
 host.Run();

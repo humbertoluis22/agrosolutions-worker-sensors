@@ -1,0 +1,101 @@
+services:
+  # --- Infraestrutura: Banco de Dados (PostgreSQL) ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres-db
+    ports:
+      - "5432:5432"
+    environment:
+      # Definições iniciais do banco (usuário/senha/nome)
+      - POSTGRES_DB=AgrosolutionsSensors
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=adminpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agrosolutions-network
+
+  # --- Infraestrutura: Mensageria (RabbitMQ) ---
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # Porta para comunicação das apps
+      - "15672:15672" # Porta do painel de gerenciamento
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agrosolutions-network
+
+
+  # --- Serviço 1: Worker Host (Consumidor) ---
+  # Roda o ENTRYPOINT padrão do Dockerfile: "dotnet host/AgrosolutionsWorkerSensors.Host.dll"
+  worker-host:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: worker-host
+    environment:
+      # Lógica do AppSettings: ConnectionStrings:Postgres -> ConnectionStrings__Postgres
+      # Host=postgres (nome do serviço acima)
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=AgrosolutionsSensors;Username=postgres;Password=adminpassword
+      
+      # Lógica do AppSettings: RabbitMQ:Host -> RabbitMQ__Host
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=guest
+      - RabbitMQ__Password=guest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+    - agrosolutions-network
+
+  # --- Serviço 2: Worker Generator (Produtor) ---
+  # SOBRESCREVE o ENTRYPOINT para rodar o Gerador: "dotnet generator/AgrosolutionsWorkerSensors.Generator.dll"
+  worker-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: worker-generator
+    entrypoint: ["dotnet", "generator/AgrosolutionsWorkerSensors.Generator.dll"]
+    environment:
+      # 1. RabbitMQ
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=guest
+      - RabbitMQ__Password=guest
+
+      # 2. URL da API (ApiRawUrl)
+      # IMPORTANTE: Trocamos 'localhost' pelo nome do serviço da API definido no docker-compose.
+      # A porta deve ser a mesma configurada no ASPNETCORE_URLS da API (5198).
+      - ApiRawUrl=http://ingestion-api:5198
+
+      # 3. Connection String (ConnectionStrings:DefaultConnection)
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=AgrosolutionsSensors;Username=postgres;Password=adminpassword
+
+      # 4. Configurações de Geração (GenerationSettings:IntervalSeconds)
+      - GenerationSettings__IntervalSeconds=10
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - agrosolutions-network
+# Persistência de dados do banco
+volumes:
+  postgres_data:
+
+networks:
+  agrosolutions-network:
+    external: true
