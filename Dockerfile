@@ -32,6 +32,8 @@ WORKDIR /app
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 RUN apk add --no-cache icu-libs
 
+RUN apk add --no-cache icu-libs krb5-libs
+
 # Copia os artefatos compilados
 COPY --from=build /app/publish/host ./host
 COPY --from=build /app/publish/generator ./generator

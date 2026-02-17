@@ -20,25 +20,6 @@ services:
     networks:
       - agrosolutions-network
 
-  # --- Infraestrutura: Mensageria (RabbitMQ) ---
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    container_name: rabbitmq
-    ports:
-      - "5672:5672"   # Porta para comunicação das apps
-      - "15672:15672" # Porta do painel de gerenciamento
-    environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
-    healthcheck:
-      test: rabbitmq-diagnostics -q ping
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - agrosolutions-network
-
-
   # --- Serviço 1: Worker Host (Consumidor) ---
   # Roda o ENTRYPOINT padrão do Dockerfile: "dotnet host/AgrosolutionsWorkerSensors.Host.dll"
   worker-host:
@@ -51,15 +32,18 @@ services:
       # Host=postgres (nome do serviço acima)
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=AgrosolutionsSensors;Username=postgres;Password=adminpassword
       
-      # Lógica do AppSettings: RabbitMQ:Host -> RabbitMQ__Host
-      - RabbitMQ__Host=rabbitmq
-      - RabbitMQ__Username=guest
-      - RabbitMQ__Password=guest
+      # 2. Configurações AWS (Mapeamento do appsettings "AWS")
+      - AWS__Region=sa-east-1
+      - AWS__SqsQueueUrl=https://sqs.sa-east-1.amazonaws.com/405114419969/agrosolutions-identity-events
+      
+      # 3. Credenciais AWS (Lê do seu ambiente local ou arquivo .env)
+      - AWS_ACCESS_KEY_ID=...
+      - AWS_SECRET_ACCESS_KEY=...
+
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+
     networks:
     - agrosolutions-network
 
@@ -72,24 +56,16 @@ services:
     container_name: worker-generator
     entrypoint: ["dotnet", "generator/AgrosolutionsWorkerSensors.Generator.dll"]
     environment:
-      # 1. RabbitMQ
-      - RabbitMQ__Host=rabbitmq
-      - RabbitMQ__Username=guest
-      - RabbitMQ__Password=guest
-
-      # 2. URL da API (ApiRawUrl)
+     
       # IMPORTANTE: Trocamos 'localhost' pelo nome do serviço da API definido no docker-compose.
       # A porta deve ser a mesma configurada no ASPNETCORE_URLS da API (5198).
       - ApiRawUrl=http://ingestion-api:5198
 
-      # 3. Connection String (ConnectionStrings:DefaultConnection)
+      # 1. Connection String (ConnectionStrings:DefaultConnection)
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=AgrosolutionsSensors;Username=postgres;Password=adminpassword
 
-      # 4. Configurações de Geração (GenerationSettings:IntervalSeconds)
+      # 2. Configurações de Geração (GenerationSettings:IntervalSeconds)
       - GenerationSettings__IntervalSeconds=10
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
     networks:
       - agrosolutions-network
 # Persistência de dados do banco

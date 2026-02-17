@@ -83,9 +83,11 @@ namespace AgrosolutionsWorkerSensors.Generator.Service
                 SensorType.Solo => new SoloData(
                     Umidade: Math.Round(_random.NextDouble() * 100, 2),
                     Ph: Math.Round(_random.NextDouble() * 14, 1),
-                    Nitrogenio: Math.Round(_random.NextDouble() * 50, 2),
-                    Fosforo: Math.Round(_random.NextDouble() * 50, 2),
-                    Potassio: Math.Round(_random.NextDouble() * 50, 2)
+                     NutrientesData: new NutrientesData(
+                            Nitrogenio: Math.Round(_random.NextDouble() * 50, 2),
+                            Fosforo: Math.Round(_random.NextDouble() * 50, 2),
+                            Potassio: Math.Round(_random.NextDouble() * 50, 2)
+                        )
                 ),
                 SensorType.Silos => new SiloData(
                     NivelPreenchimento: Math.Round(_random.NextDouble() * 100, 2),

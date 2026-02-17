@@ -1,68 +1,92 @@
 ﻿using AgrosolutionsWorkerSensors.Domain.Entities;
 using AgrosolutionsWorkerSensors.Domain.Enums;
 using AgrosolutionsWorkerSensors.Infrastructure.Data;
-using AgrosolutionsWorkerSensors.Registration.Dtos;
+using AgrosolutionsWorkerSensors.Registration.Dtos; 
+using Amazon.SQS;
+using Amazon.SQS.Model;
 using Microsoft.EntityFrameworkCore;
-using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
-using System.Text;
 using System.Text.Json;
 
-
 namespace AgrosolutionsWorkerSensors.Registration.Services;
+
 public class RegistrationWorker : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<RegistrationWorker> _logger;
-    private IConnection _connection;
-    private IModel _channel;
+    private readonly IAmazonSQS _sqsClient;
+    private readonly string _queueUrl;
 
-    public RegistrationWorker(IServiceProvider serviceProvider, IConfiguration configuration, ILogger<RegistrationWorker> logger)
+    public RegistrationWorker(
+        IServiceProvider serviceProvider,
+        IConfiguration configuration,
+        IAmazonSQS sqsClient, 
+        ILogger<RegistrationWorker> logger)
     {
         _serviceProvider = serviceProvider;
-        _configuration = configuration;
         _logger = logger;
-        InitRabbitMQ();
+        
+        _sqsClient = sqsClient; 
+        
+        _queueUrl = configuration["AWS:SqsQueueUrl"] 
+                    ?? throw new ArgumentNullException("AWS:SqsQueueUrl não configurado.");
     }
 
-    private void InitRabbitMQ()
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var factory = new ConnectionFactory { HostName = _configuration["RabbitMQ:Host"] ?? "localhost" };
-        _connection = factory.CreateConnection();
-        _channel = _connection.CreateModel();
-        _channel.QueueDeclare(queue: _configuration["RabbitMQ:QueueName"] ?? "register_sensor", durable: true, exclusive: false, autoDelete: false, arguments: null);
-    }
+        _logger.LogInformation("Iniciando consumidor SQS para Registro de Sensores...");
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        var consumer = new EventingBasicConsumer(_channel);
-        consumer.Received += async (model, ea) =>
+        while (!stoppingToken.IsCancellationRequested)
         {
-            var body = ea.Body.ToArray();
-            var message = Encoding.UTF8.GetString(body);
-
             try
             {
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var sensorDto = JsonSerializer.Deserialize<RegisterSensorMessage>(message, options);
-
-                if (sensorDto != null)
+                // Configuração da requisição para o SQS
+                var request = new ReceiveMessageRequest
                 {
-                    await ProcessSensorAsync(sensorDto);
-                    _channel.BasicAck(ea.DeliveryTag, false);
+                    QueueUrl = _queueUrl,
+                    MaxNumberOfMessages = 1, // Processa uma por vez para garantir consistência
+                    WaitTimeSeconds = 20 // Long Polling: aguarda até 20s se a fila estiver vazia (reduz custos)
+                };
+
+                var response = await _sqsClient.ReceiveMessageAsync(request, stoppingToken);
+
+                if (response?.Messages == null || !response.Messages.Any())
+                {
+                    _logger.LogError("Mensagem SQS esta vazia");
+                    continue;
+                }
+
+                
+                foreach (var message in response.Messages)
+                {
+                    try
+                    {
+                        // Deserializa a mensagem do corpo do SQS
+                        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        var sensorDto = JsonSerializer.Deserialize<RegisterSensorMessage>(message.Body, options);
+
+                        if (sensorDto != null)
+                        {
+                            // Chama SUA lógica original de negócio
+                            await ProcessSensorAsync(sensorDto);
+
+                            // Se deu tudo certo, remove a mensagem da fila para não processar de novo
+                            await _sqsClient.DeleteMessageAsync(_queueUrl, message.ReceiptHandle, stoppingToken);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Erro ao processar mensagem individual ID {MessageId}", message.MessageId);
+                        
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro ao processar mensagem");
-                // Em produção: enviar para Dead Letter Queue
-                _channel.BasicNack(ea.DeliveryTag, false, false);
+                // Erro de conexão com o SQS ou algo infraestrutural
+                _logger.LogError(ex, "Erro na conexão ou recebimento da fila SQS.");
+                await Task.Delay(5000, stoppingToken); // Backoff de 5s antes de tentar reconectar
             }
-        };
-
-        _channel.BasicConsume(queue: _configuration["RabbitMQ:QueueName"] ?? "register_sensor", autoAck: false, consumer: consumer);
-        return Task.CompletedTask;
+        }
     }
 
     private async Task ProcessSensorAsync(RegisterSensorMessage dto)
