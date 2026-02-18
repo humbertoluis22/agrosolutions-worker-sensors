@@ -37,8 +37,8 @@ services:
       - AWS__SqsQueueUrl=https://sqs.sa-east-1.amazonaws.com/405114419969/agrosolutions-identity-events
       
       # 3. Credenciais AWS (Lê do seu ambiente local ou arquivo .env)
-      - AWS_ACCESS_KEY_ID=...
-      - AWS_SECRET_ACCESS_KEY=...
+      - AWS_ACCESS_KEY_ID= "${AWS_ACCESS_KEY_ID}" 
+      - AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
 
     depends_on:
       postgres:

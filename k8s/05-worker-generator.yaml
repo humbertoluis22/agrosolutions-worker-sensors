@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-generator
+  namespace: agrosolutions
+  labels:
+    app: worker-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-generator
+  template:
+    metadata:
+      labels:
+        app: worker-generator
+    spec:
+      containers:
+      - name: worker-generator
+        image: agrosolutions-worker:latest
+        imagePullPolicy: IfNotPresent
+        # SOBRESCREVENDO O COMANDO PARA RODAR O GENERATOR
+        command: ["dotnet", "generator/AgrosolutionsWorkerSensors.Generator.dll"]
+        envFrom:
+        - configMapRef:
+            name: worker-common-config
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws-secrets
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws-secrets
+              key: AWS_SECRET_ACCESS_KEY
