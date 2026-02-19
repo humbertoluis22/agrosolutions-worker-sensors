@@ -1,0 +1,41 @@
+---
+# Common ConfigMap for all Workers
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workers-common-config
+  namespace: agrosolutions-workers
+data:
+  DOTNET_ENVIRONMENT: "Production"
+  
+  # Database Configuration
+  ConnectionStrings__DefaultConnection: "Host=postgres-db;Port=5432;Database=agrosolutions_raw;Username=postgres;Password=root"
+  
+  # AWS Configuration
+  AWS__Region: "sa-east-1"
+  
+  # Logging Configuration
+  Logging__LogLevel__Default: "Information"
+  Logging__LogLevel__Microsoft: "Warning"
+  Logging__LogLevel__System: "Warning"
+
+---
+# ConfigMap específico para Host Worker (Registration)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: worker-host-config
+  namespace: agrosolutions-workers
+data:
+  AWS__SqsQueueUrl: "https://sqs.sa-east-1.amazonaws.com/316295889438/agrosolutions-identity-events"
+
+---
+# ConfigMap específico para Generator Worker
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: worker-generator-config
+  namespace: agrosolutions-workers
+data:
+  ApiRawUrl: "http://ingestion-api-service.agrosolutions-ingestion.svc.cluster.local"
+  GenerationSettings__IntervalSeconds: "10"
