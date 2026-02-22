@@ -143,8 +143,8 @@ jobs:
           echo "🔒 Aplicando Resource Configs..."
           kubectl apply -f k8s/production/resource-configs.yaml
 
-          echo "📊 Aplicando Observability..."
-          kubectl apply -f k8s/production/observability.yaml
+          echo "📊 Aplicando Observability (requer Prometheus Operator)..."
+          kubectl apply -f k8s/production/observability.yaml || echo "⚠️ Observability ignorado: Prometheus Operator CRDs não encontrados no cluster"
 
           echo "✅ Manifests aplicados com sucesso"
 
