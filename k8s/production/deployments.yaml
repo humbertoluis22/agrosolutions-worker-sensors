@@ -73,27 +73,6 @@ spec:
             memory: "512Mi"
             cpu: "1000m"
         
-        # Liveness Probe - verifica se o processo está responsivo
-        livenessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - "pgrep -f AgrosolutionsWorkerSensors.Registration.dll || exit 1"
-          initialDelaySeconds: 30
-          periodSeconds: 30
-          timeoutSeconds: 5
-          failureThreshold: 3
-        
-        # Security Context
-        securityContext:
-          allowPrivilegeEscalation: false
-          runAsNonRoot: true
-          runAsUser: 1001
-          capabilities:
-            drop:
-            - ALL
-
 ---
 # Worker Generator Deployment
 apiVersion: apps/v1
@@ -151,23 +130,4 @@ spec:
             memory: "512Mi"
             cpu: "1000m"
         
-        # Liveness Probe
-        livenessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - "pgrep -f AgrosolutionsWorkerSensors.Generator.dll || exit 1"
-          initialDelaySeconds: 30
-          periodSeconds: 30
-          timeoutSeconds: 5
-          failureThreshold: 3
-        
-        # Security Context
-        securityContext:
-          allowPrivilegeEscalation: false
-          runAsNonRoot: true
-          runAsUser: 1001
-          capabilities:
-            drop:
-            - ALL
+

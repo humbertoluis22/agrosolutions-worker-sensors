@@ -1,5 +1,4 @@
 ---
-# PostgreSQL Database Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,11 +6,10 @@ metadata:
   namespace: agrosolutions-workers
   labels:
     app: postgres-db
-    component: database
 spec:
   replicas: 1
   strategy:
-    type: Recreate  # Para bancos de dados stateful
+    type: Recreate
   selector:
     matchLabels:
       app: postgres-db
@@ -19,15 +17,12 @@ spec:
     metadata:
       labels:
         app: postgres-db
-        component: database
     spec:
-      terminationGracePeriodSeconds: 60
       containers:
       - name: postgres
         image: postgres:16-alpine
         ports:
         - containerPort: 5432
-          name: postgres
         env:
         - name: POSTGRES_DB
           value: "agrosolutions_raw"
@@ -37,77 +32,28 @@ spec:
           value: "root"
         - name: PGDATA
           value: "/var/lib/postgresql/data/pgdata"
-        
-        # Health Checks
-        livenessProbe:
-          exec:
-            command:
-            - pg_isready
-            - -U
-            - postgres
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        
         readinessProbe:
           exec:
-            command:
-            - pg_isready
-            - -U
-            - postgres
+            command: ["pg_isready", "-U", "postgres"]
           initialDelaySeconds: 10
           periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
-        
-        # Resource Management
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
-        
-        # Persistent Storage
         volumeMounts:
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data
-        
-        # Security Context
-        securityContext:
-          allowPrivilegeEscalation: false
-          runAsNonRoot: true
-          runAsUser: 999  # postgres user in alpine
-          capabilities:
-            drop:
-            - ALL
-            add:
-            - CHOWN
-            - DAC_OVERRIDE
-            - FOWNER
-            - SETGID
-            - SETUID
-      
       volumes:
       - name: postgres-storage
         persistentVolumeClaim:
           claimName: postgres-pvc
 
 ---
-# PersistentVolumeClaim for PostgreSQL
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
   namespace: agrosolutions-workers
-  labels:
-    app: postgres-db
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
-  storageClassName: gp3  # AWS EBS GP3 (ajuste conforme seu cluster)

@@ -61,7 +61,7 @@ jobs:
         run: |
           aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
 
-          sed -i "s|agrosolutions-worker:latest|$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|g" k8s/production/deployments.yaml
+          sed -i "s|agrosolutions-worker:latest|agrosolutions-worker:$IMAGE_TAG|g" k8s/production/deployments.yaml
 
           kubectl apply -f k8s/production/namespace.yaml
           kubectl apply -f k8s/production/infrastructure.yaml
