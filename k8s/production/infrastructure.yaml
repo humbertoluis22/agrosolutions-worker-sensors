@@ -28,7 +28,7 @@ metadata:
     app: agrosolutions-workers
     environment: production
   annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::316295889438:role/AgroSolutionsGatewayGithubActionsRole
+    eks.amazonaws.com/role-arn: arn:aws:iam::316295889438:role/agrosolutions-worker-role
 
 ---
 # Note: Secrets devem ser criados via GitHub Actions ou GitOps
