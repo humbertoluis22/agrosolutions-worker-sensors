@@ -151,8 +151,23 @@ jobs:
       - name: Wait for PostgreSQL to be ready
         run: |
           echo "Waiting for PostgreSQL deployment..."
-          kubectl wait --for=condition=available --timeout=300s \
-            deployment/postgres-db -n agrosolutions-workers
+          if ! kubectl wait --for=condition=available --timeout=300s \
+            deployment/postgres-db -n agrosolutions-workers; then
+            echo "⚠️ PostgreSQL não ficou disponível. Diagnóstico:"
+            echo ""
+            echo "=== Pods ==="
+            kubectl get pods -n agrosolutions-workers -l app=postgres-db
+            echo ""
+            echo "=== PVC Status ==="
+            kubectl get pvc -n agrosolutions-workers
+            echo ""
+            echo "=== Pod Describe ==="
+            kubectl describe pod -l app=postgres-db -n agrosolutions-workers || true
+            echo ""
+            echo "=== Events ==="
+            kubectl get events -n agrosolutions-workers --sort-by='.lastTimestamp' | tail -20
+            exit 1
+          fi
           echo "PostgreSQL is ready"
 
       - name: Wait for Worker Host rollout
