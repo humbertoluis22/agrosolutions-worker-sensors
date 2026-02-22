@@ -69,6 +69,7 @@ jobs:
           PVC_PHASE=$(kubectl get pvc postgres-pvc -n agrosolutions-workers -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
           if [[ "$PVC_PHASE" == "Pending" || "$PVC_PHASE" == "NotFound" ]]; then
             echo "PVC em estado $PVC_PHASE, recriando..."
+            kubectl delete deployment postgres-db -n agrosolutions-workers --ignore-not-found=true
             kubectl delete pvc postgres-pvc -n agrosolutions-workers --ignore-not-found=true
           fi
           kubectl apply -f k8s/production/postgres.yaml
