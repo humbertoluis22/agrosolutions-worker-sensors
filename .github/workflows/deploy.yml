@@ -1,4 +1,4 @@
-name: Deploy Workers to EKS
+name: AgroSolutions Workers - CI/CD Pipeline
 
 on:
   push:
@@ -11,193 +11,155 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: sa-east-1
-  ECR_REGISTRY: 316295889438.dkr.ecr.sa-east-1.amazonaws.com
   ECR_REPOSITORY: agrosolutions-worker
   EKS_CLUSTER_NAME: agrosolutions-eks-cluster
-  K8S_NAMESPACE: agrosolutions-workers
+  AWS_REGION: sa-east-1
+  DOTNET_VERSION: "10.0.x"
 
 jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup .NET 10.0
+      - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore dependencies
         run: dotnet restore Agrosolutions.Worker.Sensors.slnx
 
       - name: Build solution
-        run: dotnet build Agrosolutions.Worker.Sensors.slnx --configuration Release --no-restore
+        run: dotnet build Agrosolutions.Worker.Sensors.slnx -c Release --no-restore
 
       - name: Run tests
         run: dotnet test Agrosolutions.Worker.Sensors.slnx --configuration Release --no-build --verbosity normal
 
-      - name: Validate Kubernetes manifests
-        run: |
-          # Install kubeval for manifest validation
-          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
-          tar xf kubeval-linux-amd64.tar.gz
-          sudo mv kubeval /usr/local/bin
-          
-          # Validate manifests (skip secrets as it has variables)
-          for file in k8s/production/*.yaml; do
-            if [[ "$file" != *"secrets.yaml"* ]]; then
-              echo "Validating $file"
-              kubeval --ignore-missing-schemas "$file"
-            fi
-          done
-
-  build-and-push:
-    name: Build and Push Docker Image
+  deploy-to-eks:
+    name: Deploy to AWS EKS
     runs-on: ubuntu-latest
     needs: build-and-test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
-    
+    permissions:
+      id-token: write   # Required for OIDC
+      contents: read    # Required to checkout code
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: GitHubActions-WorkersDeploy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS connection
+        run: |
+          echo "Verificando credenciais AWS..."
+          aws sts get-caller-identity
+          echo "Verificando cluster EKS..."
+          aws eks describe-cluster --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Extract metadata for Docker
-        id: meta
-        run: |
-          echo "tags=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }},${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest" >> $GITHUB_OUTPUT
-          echo "build-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
-          build-args: |
-            BUILD_DATE=${{ steps.meta.outputs.build-date }}
-            VERSION=${{ github.sha }}
-            REVISION=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-
-      - name: Image digest
-        run: |
-          echo "Image pushed:"
-          echo "  - ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
-          echo "  - ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest"
-
-  deploy-to-eks:
-    name: Deploy to EKS Production
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Update kubeconfig for EKS
-        run: |
-          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
-          kubectl version --client
-          kubectl cluster-info
-
-      - name: Install envsubst
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gettext-base
-
-      - name: Prepare Kubernetes secrets
+      - name: Build, tag, and push Docker image
+        id: build-image
         env:
-          AWS_ACCESS_KEY_ID_RAW: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY_RAW: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+          BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+          VERSION: "1.0.0"
         run: |
-          # Encode secrets to base64
-          export AWS_ACCESS_KEY_ID_B64=$(echo -n "$AWS_ACCESS_KEY_ID_RAW" | base64 -w 0)
-          export AWS_SECRET_ACCESS_KEY_B64=$(echo -n "$AWS_SECRET_ACCESS_KEY_RAW" | base64 -w 0)
-          
-          # Substitute in secrets.yaml
-          envsubst < k8s/production/secrets.yaml > /tmp/secrets-processed.yaml
-          
-          echo "Secrets prepared successfully"
+          echo "Building Docker image..."
+          docker build \
+            --build-arg BUILD_DATE=$BUILD_DATE \
+            --build-arg VERSION=$VERSION \
+            --build-arg REVISION=${{ github.sha }} \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            .
 
-      - name: Deploy to Kubernetes
+          echo "Pushing to ECR..."
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "✅ Image pushed successfully: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      - name: Configure Kubectl for EKS
         run: |
-          # Prepare secrets again for this step
-          export AWS_ACCESS_KEY_ID_B64=$(echo -n "${{ secrets.AWS_ACCESS_KEY_ID }}" | base64 -w 0)
-          export AWS_SECRET_ACCESS_KEY_B64=$(echo -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" | base64 -w 0)
-          
-          echo "Applying Kubernetes manifests..."
-          
-          # Apply in order
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+          kubectl version --client
+
+      - name: Verify EKS connection
+        run: |
+          echo "Verificando conectividade com EKS..."
+          kubectl cluster-info
+          kubectl get nodes
+          echo "Namespaces existentes:"
+          kubectl get namespaces
+
+      - name: Deploy to EKS
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Imagem a ser deployada: ${{ steps.build-image.outputs.image }}"
+
+          # Substituir placeholder da imagem nos deployments
+          sed -i "s|316295889438.dkr.ecr.sa-east-1.amazonaws.com/agrosolutions-worker:latest|$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|g" k8s/production/deployments.yaml
+
+          echo "Verificando substituição da imagem:"
+          grep "image:" k8s/production/deployments.yaml | head -5
+
+          # Aplicar manifestos na ordem correta
+          echo "📦 Aplicando namespace..."
           kubectl apply -f k8s/production/namespace.yaml
-          
-          # Apply secrets with substitution
-          envsubst < k8s/production/secrets.yaml | kubectl apply -f -
-          
-          # Apply remaining manifests
+
+          echo "🔐 Aplicando ServiceAccount (IRSA)..."
+          kubectl apply -f k8s/production/infrastructure.yaml
+
+          echo "⚙️ Aplicando ConfigMaps..."
           kubectl apply -f k8s/production/configmaps.yaml
+
+          echo "🗄️ Aplicando PostgreSQL..."
           kubectl apply -f k8s/production/postgres.yaml
+
+          echo "🌐 Aplicando Services..."
           kubectl apply -f k8s/production/services.yaml
+
+          echo "🚀 Aplicando Deployments..."
           kubectl apply -f k8s/production/deployments.yaml
+
+          echo "📈 Aplicando HPA..."
           kubectl apply -f k8s/production/hpa.yaml
+
+          echo "🔒 Aplicando Resource Configs..."
           kubectl apply -f k8s/production/resource-configs.yaml
+
+          echo "📊 Aplicando Observability..."
           kubectl apply -f k8s/production/observability.yaml
-          
-          echo "Manifests applied successfully"
+
+          echo "✅ Manifests aplicados com sucesso"
 
       - name: Wait for PostgreSQL to be ready
         run: |
           echo "Waiting for PostgreSQL deployment..."
           kubectl wait --for=condition=available --timeout=300s \
-            deployment/postgres-db -n ${{ env.K8S_NAMESPACE }}
+            deployment/postgres-db -n agrosolutions-workers
           echo "PostgreSQL is ready"
 
       - name: Wait for Worker Host rollout
         run: |
           echo "Waiting for Worker Host deployment..."
           kubectl rollout status deployment/worker-host \
-            -n ${{ env.K8S_NAMESPACE }} \
+            -n agrosolutions-workers \
             --timeout=600s
           echo "Worker Host deployed successfully"
 
@@ -205,51 +167,48 @@ jobs:
         run: |
           echo "Waiting for Worker Generator deployment..."
           kubectl rollout status deployment/worker-generator \
-            -n ${{ env.K8S_NAMESPACE }} \
+            -n agrosolutions-workers \
             --timeout=600s
           echo "Worker Generator deployed successfully"
 
       - name: Verify deployment
         run: |
           echo "=== Deployment Status ==="
-          kubectl get deployments -n ${{ env.K8S_NAMESPACE }}
-          
+          kubectl get deployments -n agrosolutions-workers
+
           echo ""
           echo "=== Pod Status ==="
-          kubectl get pods -n ${{ env.K8S_NAMESPACE }}
-          
+          kubectl get pods -n agrosolutions-workers
+
           echo ""
           echo "=== Service Status ==="
-          kubectl get services -n ${{ env.K8S_NAMESPACE }}
-          
+          kubectl get services -n agrosolutions-workers
+
           echo ""
           echo "=== HPA Status ==="
-          kubectl get hpa -n ${{ env.K8S_NAMESPACE }}
+          kubectl get hpa -n agrosolutions-workers
 
       - name: Check for deployment errors
         run: |
           echo "Checking for pod errors..."
-          
-          # Get pods that are not running
-          NOT_RUNNING=$(kubectl get pods -n ${{ env.K8S_NAMESPACE }} \
+          NOT_RUNNING=$(kubectl get pods -n agrosolutions-workers \
             --field-selector=status.phase!=Running \
             --no-headers 2>/dev/null | wc -l)
-          
+
           if [ "$NOT_RUNNING" -gt 0 ]; then
             echo "WARNING: $NOT_RUNNING pods are not in Running state"
-            kubectl get pods -n ${{ env.K8S_NAMESPACE }} \
+            kubectl get pods -n agrosolutions-workers \
               --field-selector=status.phase!=Running
-            
-            # Show logs of problematic pods
-            for pod in $(kubectl get pods -n ${{ env.K8S_NAMESPACE }} \
+
+            for pod in $(kubectl get pods -n agrosolutions-workers \
               --field-selector=status.phase!=Running \
               -o jsonpath='{.items[*].metadata.name}'); do
               echo ""
               echo "=== Logs for $pod ==="
-              kubectl logs $pod -n ${{ env.K8S_NAMESPACE }} --tail=50 || true
+              kubectl logs $pod -n agrosolutions-workers --tail=50 || true
               echo ""
               echo "=== Describe $pod ==="
-              kubectl describe pod $pod -n ${{ env.K8S_NAMESPACE }} || true
+              kubectl describe pod $pod -n agrosolutions-workers || true
             done
           else
             echo "All pods are running successfully!"
@@ -259,10 +218,12 @@ jobs:
         if: always()
         run: |
           echo "=== Deployment Summary ==="
-          echo "Namespace: ${{ env.K8S_NAMESPACE }}"
-          echo "Image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+          echo "Namespace: agrosolutions-workers"
+          echo "Image: ${{ steps.build-image.outputs.image }}"
           echo "Commit: ${{ github.sha }}"
           echo "Branch: ${{ github.ref_name }}"
           echo "Triggered by: ${{ github.actor }}"
           echo ""
-          kubectl get all -n ${{ env.K8S_NAMESPACE }}
+          kubectl get all -n agrosolutions-workers
+
+

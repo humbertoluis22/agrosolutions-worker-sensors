@@ -1,0 +1,39 @@
+---
+# AWS IAM Role for Service Account (IRSA)
+# Permite pods assumirem IAM Role sem credenciais explícitas armazenadas no cluster
+#
+# Configuração do IAM Role:
+# - Role: AgroSolutionsGatewayGithubActionsRole
+# - Políticas necessárias: SQS (ReceiveMessage, DeleteMessage, GetQueueAttributes)
+#
+# Trust policy deve incluir o OIDC provider do EKS:
+# {
+#   "Effect": "Allow",
+#   "Principal": {
+#     "Federated": "arn:aws:iam::316295889438:oidc-provider/oidc.eks.sa-east-1.amazonaws.com/id/YOUR_OIDC_ID"
+#   },
+#   "Action": "sts:AssumeRoleWithWebIdentity",
+#   "Condition": {
+#     "StringEquals": {
+#       "oidc.eks.sa-east-1.amazonaws.com/id/YOUR_OIDC_ID:sub": "system:serviceaccount:agrosolutions-workers:agrosolutions-workers-sa"
+#     }
+#   }
+# }
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agrosolutions-workers-sa
+  namespace: agrosolutions-workers
+  labels:
+    app: agrosolutions-workers
+    environment: production
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::316295889438:role/AgroSolutionsGatewayGithubActionsRole
+
+---
+# Note: Secrets devem ser criados via GitHub Actions ou GitOps
+# Nunca commitar secrets reais no repositório
+#
+# Secrets necessários:
+# - database-secrets: postgres-user, postgres-password, connection-string
+# (Com IRSA, credenciais AWS não precisam ser armazenadas como K8s Secrets)

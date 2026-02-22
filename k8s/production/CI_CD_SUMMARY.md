@@ -27,52 +27,30 @@ O workflow é disparado quando:
 3. Restore de dependências
 4. Build da solution (ambos workers no mesmo Dockerfile)
 5. Execução de testes (quando disponíveis)
-6. Validação de manifests K8s com `kubeval`
 
-**Resultado**: Garante que o código compila e manifests são válidos.
+**Resultado**: Garante que o código compila e testes passam.
 
 ---
 
-### 2️⃣ Build and Push Docker Image
+### 2️⃣ Deploy to AWS EKS
 
 **Execução**: Apenas quando push em `main`
 
 **Dependência**: `build-and-test` deve passar
 
 **Passos**:
-1. **Build Multi-Stage Docker Image**
-   - Stage 1: Build ambos workers (.NET 10 Alpine)
-   - Stage 2: Runtime image com ambos binários
-   - Tag com `$(github.sha)` e `latest`
-   
-2. **Push para ECR**
-   - Login no ECR: `316295889438.dkr.ecr.sa-east-1.amazonaws.com`
-   - Push da imagem: `agrosolutions-worker:latest`
-   - Push também com tag SHA do commit para rastreabilidade
+1. **Autenticar na AWS via OIDC**
+   - Assume a role `AgroSolutionsGatewayGithubActionsRole` via OIDC (sem access keys no GitHub)
+   - Zero credenciais armazenadas como Secrets no repositório
 
-**Resultado**: Imagem Docker disponível no ECR
+2. **Build e Push da Imagem**
+   - Login no ECR via OIDC
+   - Build multi-stage e push com tag SHA do commit
 
----
-
-### 3️⃣ Deploy to EKS Production
-
-**Execução**: Apenas quando push em `main`
-
-**Dependência**: `build-and-push` deve passar
-
-**Passos**:
-1. **Configurar kubectl**
-   - Autentica no EKS cluster: `agrosolutions-eks-cluster`
-   - Região: `sa-east-1`
-
-2. **Preparar Secrets**
-   - Codifica AWS credentials em base64
-   - Substitui variáveis no secrets.yaml via `envsubst`
-
-3. **Apply Manifests**
+3. **Configurar kubectl e Apply Manifests**
    ```bash
    kubectl apply -f k8s/production/namespace.yaml
-   kubectl apply -f k8s/production/secrets.yaml
+   kubectl apply -f k8s/production/infrastructure.yaml  # ServiceAccount IRSA
    kubectl apply -f k8s/production/configmaps.yaml
    kubectl apply -f k8s/production/postgres.yaml
    kubectl apply -f k8s/production/services.yaml
@@ -103,10 +81,11 @@ Configure em: `Settings > Secrets and variables > Actions > Repository secrets`
 
 | Secret | Descrição | Como obter |
 |--------|-----------|------------|
-| `AWS_ACCESS_KEY_ID` | AWS Access Key para ECR/EKS | `aws configure get aws_access_key_id` |
-| `AWS_SECRET_ACCESS_KEY` | AWS Secret Key | `aws configure get aws_secret_access_key` |
+| `AWS_ROLE_TO_ASSUME` | ARN da IAM Role para OIDC | `arn:aws:iam::316295889438:role/AgroSolutionsGatewayGithubActionsRole` |
 
-### Permissões IAM necessárias:
+> **IRSA**: Com OIDC, nenhuma `AWS_ACCESS_KEY_ID` ou `AWS_SECRET_ACCESS_KEY` é armazenada no GitHub ou no cluster Kubernetes. Os pods assumem a role AWS automaticamente via ServiceAccount annotado.
+
+### Permissões IAM necessárias na role `AgroSolutionsGatewayGithubActionsRole`:
 
 ```json
 {
@@ -149,10 +128,9 @@ Configure em: `Settings > Secrets and variables > Actions > Repository secrets`
 
 ```yaml
 AWS_REGION: sa-east-1
-ECR_REGISTRY: 316295889438.dkr.ecr.sa-east-1.amazonaws.com
 ECR_REPOSITORY: agrosolutions-worker
 EKS_CLUSTER_NAME: agrosolutions-eks-cluster
-K8S_NAMESPACE: agrosolutions-workers
+DOTNET_VERSION: "10.0.x"
 ```
 
 ---
@@ -229,7 +207,7 @@ kubectl describe nodes | grep -A 5 "Allocated resources"
 `.github/workflows/deploy.yml`:
 
 ```yaml
-name: Deploy Workers to EKS
+name: AgroSolutions Workers - CI/CD Pipeline
 
 on:
   push:
@@ -239,88 +217,64 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: sa-east-1
-  ECR_REGISTRY: 316295889438.dkr.ecr.sa-east-1.amazonaws.com
   ECR_REPOSITORY: agrosolutions-worker
   EKS_CLUSTER_NAME: agrosolutions-eks-cluster
+  AWS_REGION: sa-east-1
+  DOTNET_VERSION: "10.0.x"
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      
-      - name: Restore dependencies
-        run: dotnet restore
-      
-      - name: Build
-        run: dotnet build --no-restore
-      
-      - name: Test
-        run: dotnet test --no-build --verbosity normal
+      - run: dotnet restore Agrosolutions.Worker.Sensors.slnx
+      - run: dotnet build Agrosolutions.Worker.Sensors.slnx -c Release --no-restore
+      - run: dotnet test Agrosolutions.Worker.Sensors.slnx --no-build -c Release
 
-  build-and-push:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  deploy-to-eks:
     needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # Required for OIDC
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Configure AWS credentials
+
+      - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: GitHubActions-WorkersDeploy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
-      
+
       - name: Login to ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-      
-      - name: Build, tag, and push image
+
+      - name: Build and push Docker image
         env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-  deploy:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Update kubeconfig
-        run: |
-          aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
-      
-      - name: Deploy to EKS
+      - name: Configure Kubectl and Deploy
         env:
-          AWS_ACCESS_KEY_ID_B64: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY_B64: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Encode secrets
-          export AWS_ACCESS_KEY_ID_B64=$(echo -n "$AWS_ACCESS_KEY_ID_B64" | base64)
-          export AWS_SECRET_ACCESS_KEY_B64=$(echo -n "$AWS_SECRET_ACCESS_KEY_B64" | base64)
-          
-          # Apply manifests
+          aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+
+          sed -i "s|agrosolutions-worker:latest|$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|g" k8s/production/deployments.yaml
+
           kubectl apply -f k8s/production/namespace.yaml
-          envsubst < k8s/production/secrets.yaml | kubectl apply -f -
+          kubectl apply -f k8s/production/infrastructure.yaml
           kubectl apply -f k8s/production/configmaps.yaml
           kubectl apply -f k8s/production/postgres.yaml
           kubectl apply -f k8s/production/services.yaml
@@ -328,8 +282,7 @@ jobs:
           kubectl apply -f k8s/production/hpa.yaml
           kubectl apply -f k8s/production/resource-configs.yaml
           kubectl apply -f k8s/production/observability.yaml
-          
-          # Wait for rollout
+
           kubectl rollout status deployment/worker-host -n agrosolutions-workers --timeout=10m
           kubectl rollout status deployment/worker-generator -n agrosolutions-workers --timeout=10m
 ```
@@ -338,11 +291,12 @@ jobs:
 
 ## ✅ Checklist Pré-Deploy
 
-- [ ] Secrets configurados no GitHub
+- [ ] Secret `AWS_ROLE_TO_ASSUME` configurado no GitHub (`arn:aws:iam::316295889438:role/AgroSolutionsGatewayGithubActionsRole`)
+- [ ] OIDC Provider configurado no AWS IAM para o repositório GitHub
 - [ ] ECR repository `agrosolutions-worker` criado
 - [ ] EKS cluster `agrosolutions-eks-cluster` ativo
-- [ ] kubectl tem permissões adequadas
+- [ ] IRSA: Trust policy da role inclui o OIDC provider do EKS para o namespace `agrosolutions-workers`
 - [ ] StorageClass configurado para PVC (GP3)
 - [ ] Namespace Ingestion API existe (para cross-namespace calls)
 - [ ] Prometheus Operator instalado (para ServiceMonitor)
-- [ ] AWS SQS queue criada e acessível
+- [ ] AWS SQS queue `agrosolutions-identity-events` criada e acessível

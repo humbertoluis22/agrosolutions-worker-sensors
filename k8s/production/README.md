@@ -9,8 +9,9 @@ Manifests de produção para deploy dos Workers de Sensores no AWS EKS.
 ```
 k8s/production/
 ├── namespace.yaml           # Namespace agrosolutions-workers
-├── secrets.yaml            # AWS credentials (base64)
-├── configmaps.yaml         # Configurações dos workers
+├── infrastructure.yaml     # ServiceAccount com IRSA (sem credenciais explícitas)
+├── secrets.yaml            # Nota: credenciais AWS via IRSA, não K8s secrets
+├── configmaps.yaml         # Configurações dos workers (queues, DB, OTEL)
 ├── postgres.yaml           # PostgreSQL com PVC
 ├── deployments.yaml        # Worker Host e Generator
 ├── services.yaml           # Services para acesso interno
@@ -26,10 +27,8 @@ k8s/production/
 # 1. Namespace
 kubectl apply -f namespace.yaml
 
-# 2. Secrets (substitua as variáveis antes)
-export AWS_ACCESS_KEY_ID_B64=$(echo -n 'YOUR_ACCESS_KEY' | base64)
-export AWS_SECRET_ACCESS_KEY_B64=$(echo -n 'YOUR_SECRET_KEY' | base64)
-envsubst < secrets.yaml | kubectl apply -f -
+# 2. ServiceAccount com IRSA (sem credenciais AWS explícitas)
+kubectl apply -f infrastructure.yaml
 
 # 3. ConfigMaps
 kubectl apply -f configmaps.yaml
@@ -100,6 +99,8 @@ kubectl top pods -n agrosolutions-workers
 
 ## 🔐 Security
 
+- **IRSA**: Pods usam IAM Role via ServiceAccount (sem credenciais AWS no cluster)
+- **OIDC GitHub Actions**: CI/CD autentica na AWS via role assumption, não com access keys
 - **RunAsNonRoot**: Todos os containers rodam como usuário não-root
 - **Capabilities**: DROP ALL + mínimo necessário
 - **NetworkPolicy**: Restringe tráfego apenas ao necessário

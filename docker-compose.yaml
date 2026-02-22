@@ -34,7 +34,7 @@ services:
       
       # 2. Configurações AWS (Mapeamento do appsettings "AWS")
       - AWS__Region=sa-east-1
-      - AWS__SqsQueueUrl=https://sqs.sa-east-1.amazonaws.com/405114419969/agrosolutions-identity-events
+      - AWS__SqsQueueUrl=https://sqs.sa-east-1.amazonaws.com/405114419969/agrosolutions-property-events-queue
       
       # 3. Credenciais AWS (Lê do seu ambiente local ou arquivo .env)
       - AWS_ACCESS_KEY_ID= "${AWS_ACCESS_KEY_ID}" 

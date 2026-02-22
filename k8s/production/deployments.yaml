@@ -28,6 +28,7 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      serviceAccountName: agrosolutions-workers-sa  # IRSA - IAM Role for Service Accounts
       terminationGracePeriodSeconds: 60  # Tempo para finalizar processamento de mensagens
       
       # InitContainer para esperar PostgreSQL
@@ -62,19 +63,6 @@ spec:
             name: workers-common-config
         - configMapRef:
             name: worker-host-config
-        
-        # Secrets
-        env:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: workers-aws-secrets
-              key: AWS_ACCESS_KEY_ID
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: workers-aws-secrets
-              key: AWS_SECRET_ACCESS_KEY
         
         # Resource Management
         resources:
@@ -136,6 +124,7 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      serviceAccountName: agrosolutions-workers-sa  # IRSA - IAM Role for Service Accounts
       terminationGracePeriodSeconds: 30
       
       containers:
@@ -152,19 +141,6 @@ spec:
             name: workers-common-config
         - configMapRef:
             name: worker-generator-config
-        
-        # Secrets (Generator não precisa AWS, mas mantém para consistência)
-        env:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: workers-aws-secrets
-              key: AWS_ACCESS_KEY_ID
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: workers-aws-secrets
-              key: AWS_SECRET_ACCESS_KEY
         
         # Resource Management
         resources:
