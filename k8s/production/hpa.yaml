@@ -1,56 +1,26 @@
 ---
-# Horizontal Pod Autoscaler for Worker Generator
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: worker-generator-hpa
   namespace: agrosolutions-workers
-  labels:
-    app: worker-generator
-    component: data-generation
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
     name: worker-generator
-  minReplicas: 2
-  maxReplicas: 8
+  minReplicas: 1
+  maxReplicas: 3
   metrics:
-  # CPU-based scaling
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
         averageUtilization: 70
-  
-  # Memory-based scaling
   - type: Resource
     resource:
       name: memory
       target:
         type: Utilization
         averageUtilization: 80
-  
-  behavior:
-    scaleDown:
-      stabilizationWindowSeconds: 300  # Aguarda 5 min antes de reduzir
-      policies:
-      - type: Percent
-        value: 50  # Reduz no máximo 50% dos pods por vez
-        periodSeconds: 60
-      - type: Pods
-        value: 1  # Ou remove 1 pod por vez
-        periodSeconds: 60
-      selectPolicy: Min  # Usa a política mais conservadora
-    
-    scaleUp:
-      stabilizationWindowSeconds: 60  # Escala rapidamente quando necessário
-      policies:
-      - type: Percent
-        value: 100  # Pode dobrar os pods
-        periodSeconds: 30
-      - type: Pods
-        value: 2  # Ou adicionar 2 pods por vez
-        periodSeconds: 30
-      selectPolicy: Max  # Usa a política mais agressiva
