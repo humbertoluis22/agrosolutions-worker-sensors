@@ -9,12 +9,9 @@ metadata:
     app: worker-host
     component: registration
 spec:
-  replicas: 1  # SQS consumer - geralmente 1 réplica para evitar duplicação
+  replicas: 1
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+    type: Recreate
   selector:
     matchLabels:
       app: worker-host
@@ -84,12 +81,9 @@ metadata:
     app: worker-generator
     component: data-generation
 spec:
-  replicas: 2  # Pode escalar para distribuir carga de geração
+  replicas: 1
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+    type: Recreate
   selector:
     matchLabels:
       app: worker-generator
