@@ -1,1 +1,11 @@
-# Not used - removed for simplicity
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-host-pdb
+  namespace: agrosolutions-workers
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: worker-host

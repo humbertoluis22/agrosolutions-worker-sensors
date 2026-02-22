@@ -1,1 +1,56 @@
-# Not used - removed for simplicity (Prometheus Operator not installed)
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: workers-monitor
+  namespace: agrosolutions-workers
+  labels:
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: worker-host
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: workers-alerts
+  namespace: agrosolutions-workers
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+  - name: agrosolutions-workers
+    interval: 30s
+    rules:
+    - alert: WorkerHostDown
+      expr: kube_deployment_status_replicas_available{namespace="agrosolutions-workers",deployment="worker-host"} == 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Worker Host está down"
+        description: "Nenhuma réplica disponível do worker-host há mais de 2 minutos"
+
+    - alert: WorkerGeneratorDown
+      expr: kube_deployment_status_replicas_available{namespace="agrosolutions-workers",deployment="worker-generator"} == 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Worker Generator está down"
+        description: "Nenhuma réplica disponível do worker-generator há mais de 2 minutos"
+
+    - alert: WorkerHighCPU
+      expr: rate(container_cpu_usage_seconds_total{namespace="agrosolutions-workers"}[5m]) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Alto uso de CPU nos workers"

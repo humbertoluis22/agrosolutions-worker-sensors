@@ -69,6 +69,14 @@ jobs:
           kubectl apply -f k8s/production/postgres.yaml
           kubectl apply -f k8s/production/services.yaml
           kubectl apply -f k8s/production/deployments.yaml
+          kubectl apply -f k8s/production/hpa.yaml
+          kubectl apply -f k8s/production/resource-configs.yaml
+          kubectl apply -f k8s/production/observability.yaml || echo "⚠️ Observability ignorado: Prometheus Operator CRDs não encontrados"
 
           kubectl rollout status deployment/worker-host -n agrosolutions-workers --timeout=300s
           kubectl rollout status deployment/worker-generator -n agrosolutions-workers --timeout=300s
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          kubectl get pods -n agrosolutions-workers || true
