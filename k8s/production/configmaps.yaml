@@ -53,5 +53,5 @@ metadata:
   name: worker-generator-config
   namespace: agrosolutions-workers
 data:
-  ApiRawUrl: "http://ingestion-api-service.agrosolutions-ingestion.svc.cluster.local"
+  ApiRawUrl: "http://ingestion-api-service.agrosolutions-ingestion.svc.cluster.local:8080"
   GenerationSettings__IntervalSeconds: "10"
