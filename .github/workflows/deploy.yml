@@ -73,7 +73,7 @@ jobs:
             kubectl delete pvc postgres-pvc -n agrosolutions-workers --ignore-not-found=true
           fi
           kubectl apply -f k8s/production/postgres.yaml
-          kubectl rollout status deployment/postgres-db -n agrosolutions-workers --timeout=180s
+          kubectl rollout status deployment/postgres-db -n agrosolutions-workers --timeout=300s
           kubectl apply -f k8s/production/services.yaml
           kubectl apply -f k8s/production/deployments.yaml
           kubectl apply -f k8s/production/hpa.yaml
