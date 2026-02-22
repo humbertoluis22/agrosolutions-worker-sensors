@@ -1,0 +1,57 @@
+---
+# Common ConfigMap for all Workers
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workers-common-config
+  namespace: agrosolutions-workers
+data:
+  DOTNET_ENVIRONMENT: "Production"
+  
+  # Database Configuration
+  ConnectionStrings__DefaultConnection: "Host=postgres-db;Port=5432;Database=agrosolutions_raw;Username=postgres;Password=root"
+  
+  # AWS Configuration
+  AWS__Region: "sa-east-1"
+  
+  # Logging Configuration
+  Logging__LogLevel__Default: "Information"
+  Logging__LogLevel__Microsoft: "Warning"
+  Logging__LogLevel__System: "Warning"
+  
+  # OpenTelemetry Configuration
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector-service.agrosolutions-observability:4317"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+  OTEL_SERVICE_NAME: "agrosolutions-workers"
+  OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=production,service.version=1.0.0"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_METRICS_EXPORTER: "otlp"
+  OTEL_LOGS_EXPORTER: "otlp"
+
+---
+# ConfigMap específico para Host Worker (Registration)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: worker-host-config
+  namespace: agrosolutions-workers
+data:
+  # AWS SQS Queues (Worker Host consome eventos de registro de sensores)
+  # Mapeamento de filas (nome antigo → nome novo):
+  #   agrosolutions-alerts             → agrosolutions-status-changed-queue
+  #   agrosolutions-email-notifications → agrosolutions-email-queue
+  #   agrosolutions-property-events    → agrosolutions-property-events-queue
+  #   agrosolutions-user-events        → agrosolutions-produtor-sync-queue
+  #   agrosolutions-user-events        → agrosolutions-identity-events
+  AWS__SqsQueueUrl: "https://sqs.sa-east-1.amazonaws.com/316295889438/agrosolutions-property-events-queue"
+
+---
+# ConfigMap específico para Generator Worker
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: worker-generator-config
+  namespace: agrosolutions-workers
+data:
+  ApiRawUrl: "http://ingestion-api-service.agrosolutions-ingestion.svc.cluster.local"
+  GenerationSettings__IntervalSeconds: "10"

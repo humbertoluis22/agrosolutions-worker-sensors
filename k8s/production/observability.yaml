@@ -1,0 +1,180 @@
+---
+# ServiceMonitor para Worker Host (Registration)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: worker-host-monitor
+  namespace: agrosolutions-workers
+  labels:
+    app: worker-host
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: worker-host
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+
+---
+# ServiceMonitor para Worker Generator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: worker-generator-monitor
+  namespace: agrosolutions-workers
+  labels:
+    app: worker-generator
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: worker-generator
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+
+---
+# PrometheusRule para alertas dos Workers
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: workers-alerts
+  namespace: agrosolutions-workers
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+  - name: worker-host-alerts
+    interval: 30s
+    rules:
+    # Alerta: Worker Host está down
+    - alert: WorkerHostDown
+      expr: up{job="worker-host-service"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: worker-host
+      annotations:
+        summary: "Worker Host (Registration) está down"
+        description: "O Worker Host está inacessível há mais de 2 minutos."
+    
+    # Alerta: Worker Host com alto uso de CPU
+    - alert: WorkerHostHighCPU
+      expr: rate(container_cpu_usage_seconds_total{pod=~"worker-host-.*"}[5m]) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        component: worker-host
+      annotations:
+        summary: "Alto uso de CPU no Worker Host"
+        description: "CPU acima de 80% por mais de 5 minutos no pod {{ $labels.pod }}"
+    
+    # Alerta: Worker Host com alto uso de memória
+    - alert: WorkerHostHighMemory
+      expr: container_memory_usage_bytes{pod=~"worker-host-.*"} / container_spec_memory_limit_bytes{pod=~"worker-host-.*"} > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        component: worker-host
+      annotations:
+        summary: "Alto uso de memória no Worker Host"
+        description: "Memória acima de 90% no pod {{ $labels.pod }}"
+    
+    # Alerta: Worker Host reiniciando frequentemente
+    - alert: WorkerHostFrequentRestarts
+      expr: rate(kube_pod_container_status_restarts_total{pod=~"worker-host-.*"}[15m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+        component: worker-host
+      annotations:
+        summary: "Worker Host reiniciando frequentemente"
+        description: "Pod {{ $labels.pod }} reiniciou {{ $value }} vezes nos últimos 15 minutos"
+  
+  - name: worker-generator-alerts
+    interval: 30s
+    rules:
+    # Alerta: Worker Generator está down
+    - alert: WorkerGeneratorDown
+      expr: up{job="worker-generator-service"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: worker-generator
+      annotations:
+        summary: "Worker Generator está down"
+        description: "O Worker Generator está inacessível há mais de 2 minutos."
+    
+    # Alerta: Worker Generator com alto uso de CPU
+    - alert: WorkerGeneratorHighCPU
+      expr: rate(container_cpu_usage_seconds_total{pod=~"worker-generator-.*"}[5m]) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        component: worker-generator
+      annotations:
+        summary: "Alto uso de CPU no Worker Generator"
+        description: "CPU acima de 80% por mais de 5 minutos no pod {{ $labels.pod }}"
+    
+    # Alerta: Worker Generator com alto uso de memória
+    - alert: WorkerGeneratorHighMemory
+      expr: container_memory_usage_bytes{pod=~"worker-generator-.*"} / container_spec_memory_limit_bytes{pod=~"worker-generator-.*"} > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        component: worker-generator
+      annotations:
+        summary: "Alto uso de memória no Worker Generator"
+        description: "Memória acima de 90% no pod {{ $labels.pod }}"
+    
+    # Alerta: Nenhum pod do Generator disponível
+    - alert: WorkerGeneratorNoPodsAvailable
+      expr: kube_deployment_status_replicas_available{deployment="worker-generator"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        component: worker-generator
+      annotations:
+        summary: "Nenhum pod do Worker Generator disponível"
+        description: "Todos os pods do Worker Generator estão indisponíveis."
+  
+  - name: postgres-alerts
+    interval: 30s
+    rules:
+    # Alerta: PostgreSQL está down
+    - alert: PostgresDown
+      expr: up{job="postgres-db"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: postgres
+      annotations:
+        summary: "PostgreSQL está down"
+        description: "O banco de dados PostgreSQL está inacessível há mais de 1 minuto."
+    
+    # Alerta: PostgreSQL com alto uso de memória
+    - alert: PostgresHighMemory
+      expr: container_memory_usage_bytes{pod=~"postgres-db-.*"} / container_spec_memory_limit_bytes{pod=~"postgres-db-.*"} > 0.85
+      for: 5m
+      labels:
+        severity: warning
+        component: postgres
+      annotations:
+        summary: "Alto uso de memória no PostgreSQL"
+        description: "Memória acima de 85% no pod {{ $labels.pod }}"
+    
+    # Alerta: PostgreSQL reiniciou
+    - alert: PostgresRestarted
+      expr: changes(kube_pod_container_status_restarts_total{pod=~"postgres-db-.*"}[10m]) > 0
+      labels:
+        severity: warning
+        component: postgres
+      annotations:
+        summary: "PostgreSQL reiniciou recentemente"
+        description: "O pod {{ $labels.pod }} reiniciou nos últimos 10 minutos"

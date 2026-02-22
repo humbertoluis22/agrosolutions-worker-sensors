@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-AgrosolutionsWorkerSensors.Generator-762c9be5-e5ce-4601-ba34-84f9d9403623</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.3.22" />
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.2.14" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgrosolutionsWorkerSensors.Domain\AgrosolutionsWorkerSensors.Domain.csproj" />
+    <ProjectReference Include="..\AgrosolutionsWorkerSensors.Infrastructure\AgrosolutionsWorkerSensors.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

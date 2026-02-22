@@ -1,0 +1,66 @@
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db
+  namespace: agrosolutions-workers
+  labels:
+    app: postgres-db
+    component: database
+spec:
+  selector:
+    app: postgres-db
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
+  sessionAffinity: ClientIP  # Mantém conexões do mesmo cliente no mesmo pod
+
+---
+# Worker Host Service (opcional - para métricas/health checks)
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-host-service
+  namespace: agrosolutions-workers
+  labels:
+    app: worker-host
+    component: registration
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+spec:
+  selector:
+    app: worker-host
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+# Worker Generator Service (opcional - para métricas/health checks)
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-generator-service
+  namespace: agrosolutions-workers
+  labels:
+    app: worker-generator
+    component: data-generation
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+spec:
+  selector:
+    app: worker-generator
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
