@@ -60,23 +60,50 @@ public class RegistrationWorker : BackgroundService
                 {
                     try
                     {
-                        // Deserializa a mensagem do corpo do SQS
-                        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                        var sensorDto = JsonSerializer.Deserialize<RegisterSensorMessage>(message.Body, options);
+                        // 1. Lê o Body inicial
+                        string payloadJson = message.Body;
 
-                        if (sensorDto != null)
+                        using var outerDocument = JsonDocument.Parse(payloadJson);
+                        var outerRoot = outerDocument.RootElement;
+
+                        // 2. Verifica se é um envelope do AWS SNS
+                        if (outerRoot.TryGetProperty("Type", out var typeElement) && typeElement.GetString() == "Notification")
                         {
-                            // Chama SUA lógica original de negócio
-                            await ProcessSensorAsync(sensorDto);
+                            // Se for SNS, o payload real está dentro da propriedade "Message" como uma string
+                            if (outerRoot.TryGetProperty("Message", out var snsMessageProp))
+                            {
+                                payloadJson = snsMessageProp.GetString(); // Atualiza o payload com o conteúdo interno
+                            }
+                        }
 
-                            // Se deu tudo certo, remove a mensagem da fila para não processar de novo
-                            await _sqsClient.DeleteMessageAsync(_queueUrl, message.ReceiptHandle, stoppingToken);
+                        // 3. Agora fazemos o parse do envelope do MassTransit
+                        using var mtDocument = JsonDocument.Parse(payloadJson);
+                        var mtRoot = mtDocument.RootElement;
+
+                        // 4. Extrai o "message" minúsculo (onde está o seu DTO)
+                        if (mtRoot.TryGetProperty("message", out var mtMessageElement))
+                        {
+                            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                            var sensorDto = JsonSerializer.Deserialize<RegisterSensorMessage>(mtMessageElement.GetRawText(), options);
+
+                            if (sensorDto != null)
+                            {
+                                // Executa a lógica
+                                await ProcessSensorAsync(sensorDto);
+
+                                // Remove a mensagem
+                                await _sqsClient.DeleteMessageAsync(_queueUrl, message.ReceiptHandle, stoppingToken);
+                                _logger.LogInformation("Mensagem ID {MessageId} processada com sucesso.", message.MessageId);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("O envelope (MassTransit) da mensagem ID {MessageId} não contém a propriedade 'message'.", message.MessageId);
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Erro ao processar mensagem individual ID {MessageId}", message.MessageId);
-                        
                     }
                 }
             }
