@@ -1,23 +1,12 @@
 ﻿using AgrosolutionsWorkerSensors.Application.Interfaces;
 using AgrosolutionsWorkerSensors.Domain.Entities;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace AgrosolutionsWorkerSensors.Application.UseCases
 {
-    public class ProcessRawSensorDataUseCase
+    public class ProcessRawSensorDataUseCase(ISensorCache cache, ISensorRawRepository repository)
     {
-        private readonly ISensorCache _cache;
-        private readonly ISensorRawRepository _repository;
-
-        public ProcessRawSensorDataUseCase(
-            ISensorCache cache,
-            ISensorRawRepository repository)
-        {
-            _cache = cache;
-            _repository = repository;
-        }
+        private readonly ISensorCache _cache = cache;
+        private readonly ISensorRawRepository _repository = repository;
 
         public async Task ExecuteAsync(SensorRaw raw)
         {

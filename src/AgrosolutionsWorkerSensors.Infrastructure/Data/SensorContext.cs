@@ -1,16 +1,10 @@
 ﻿using AgrosolutionsWorkerSensors.Domain.Entities;
-using AgrosolutionsWorkerSensors.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace AgrosolutionsWorkerSensors.Infrastructure.Data
 {
-    public class SensorContext : DbContext
+    public class SensorContext(DbContextOptions<SensorContext> options) : DbContext(options)
     {
-        public SensorContext(DbContextOptions<SensorContext> options) : base(options) { }
-
         public DbSet<SensorRaw> Sensors { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

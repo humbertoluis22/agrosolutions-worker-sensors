@@ -1,35 +1,26 @@
-﻿using AgrosolutionsWorkerSensors.Domain.Entities;
+﻿using System.Text.Json;
+using AgrosolutionsWorkerSensors.Domain.Entities;
 using AgrosolutionsWorkerSensors.Domain.Enums;
 using AgrosolutionsWorkerSensors.Infrastructure.Data;
-using AgrosolutionsWorkerSensors.Registration.Dtos; 
+using AgrosolutionsWorkerSensors.Registration.Dtos;
 using Amazon.SQS;
 using Amazon.SQS.Model;
-using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 
 namespace AgrosolutionsWorkerSensors.Registration.Services;
 
-public class RegistrationWorker : BackgroundService
+public class RegistrationWorker(
+    IServiceProvider serviceProvider,
+    IConfiguration configuration,
+    IAmazonSQS sqsClient,
+    ILogger<RegistrationWorker> logger
+) : BackgroundService
 {
-    private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<RegistrationWorker> _logger;
-    private readonly IAmazonSQS _sqsClient;
-    private readonly string _queueUrl;
-
-    public RegistrationWorker(
-        IServiceProvider serviceProvider,
-        IConfiguration configuration,
-        IAmazonSQS sqsClient, 
-        ILogger<RegistrationWorker> logger)
-    {
-        _serviceProvider = serviceProvider;
-        _logger = logger;
-        
-        _sqsClient = sqsClient; 
-        
-        _queueUrl = configuration["AWS:SqsQueueUrl"] 
-                    ?? throw new ArgumentNullException("AWS:SqsQueueUrl não configurado.");
-    }
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
+    private readonly ILogger<RegistrationWorker> _logger = logger;
+    private readonly IAmazonSQS _sqsClient = sqsClient;
+    private readonly string _queueUrl =
+        configuration["AWS:SqsQueueUrl"]
+        ?? throw new ArgumentNullException("AWS:SqsQueueUrl não configurado.");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -44,7 +35,7 @@ public class RegistrationWorker : BackgroundService
                 {
                     QueueUrl = _queueUrl,
                     MaxNumberOfMessages = 1, // Processa uma por vez para garantir consistência
-                    WaitTimeSeconds = 20 // Long Polling: aguarda até 20s se a fila estiver vazia (reduz custos)
+                    WaitTimeSeconds = 20, // Long Polling: aguarda até 20s se a fila estiver vazia (reduz custos)
                 };
 
                 var response = await _sqsClient.ReceiveMessageAsync(request, stoppingToken);
@@ -55,7 +46,6 @@ public class RegistrationWorker : BackgroundService
                     continue;
                 }
 
-                
                 foreach (var message in response.Messages)
                 {
                     try
@@ -67,7 +57,10 @@ public class RegistrationWorker : BackgroundService
                         var outerRoot = outerDocument.RootElement;
 
                         // 2. Verifica se é um envelope do AWS SNS
-                        if (outerRoot.TryGetProperty("Type", out var typeElement) && typeElement.GetString() == "Notification")
+                        if (
+                            outerRoot.TryGetProperty("Type", out var typeElement)
+                            && typeElement.GetString() == "Notification"
+                        )
                         {
                             // Se for SNS, o payload real está dentro da propriedade "Message" como uma string
                             if (outerRoot.TryGetProperty("Message", out var snsMessageProp))
@@ -83,8 +76,14 @@ public class RegistrationWorker : BackgroundService
                         // 4. Extrai o "message" minúsculo (onde está o seu DTO)
                         if (mtRoot.TryGetProperty("message", out var mtMessageElement))
                         {
-                            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                            var sensorDto = JsonSerializer.Deserialize<RegisterSensorMessage>(mtMessageElement.GetRawText(), options);
+                            var options = new JsonSerializerOptions
+                            {
+                                PropertyNameCaseInsensitive = true,
+                            };
+                            var sensorDto = JsonSerializer.Deserialize<RegisterSensorMessage>(
+                                mtMessageElement.GetRawText(),
+                                options
+                            );
 
                             if (sensorDto != null)
                             {
@@ -92,18 +91,32 @@ public class RegistrationWorker : BackgroundService
                                 await ProcessSensorAsync(sensorDto);
 
                                 // Remove a mensagem
-                                await _sqsClient.DeleteMessageAsync(_queueUrl, message.ReceiptHandle, stoppingToken);
-                                _logger.LogInformation("Mensagem ID {MessageId} processada com sucesso.", message.MessageId);
+                                await _sqsClient.DeleteMessageAsync(
+                                    _queueUrl,
+                                    message.ReceiptHandle,
+                                    stoppingToken
+                                );
+                                _logger.LogInformation(
+                                    "Mensagem ID {MessageId} processada com sucesso.",
+                                    message.MessageId
+                                );
                             }
                         }
                         else
                         {
-                            _logger.LogWarning("O envelope (MassTransit) da mensagem ID {MessageId} não contém a propriedade 'message'.", message.MessageId);
+                            _logger.LogWarning(
+                                "O envelope (MassTransit) da mensagem ID {MessageId} não contém a propriedade 'message'.",
+                                message.MessageId
+                            );
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Erro ao processar mensagem individual ID {MessageId}", message.MessageId);
+                        _logger.LogError(
+                            ex,
+                            "Erro ao processar mensagem individual ID {MessageId}",
+                            message.MessageId
+                        );
                     }
                 }
             }
@@ -134,7 +147,7 @@ public class RegistrationWorker : BackgroundService
                     DtCreated = dto.DtCreated,
                     TypeSensor = dto.TypeSensor,
                     StatusSensor = dto.StatusSensor,
-                    TypeOperation = dto.TypeOperation
+                    TypeOperation = dto.TypeOperation,
                 };
                 dbContext.Sensors.Add(newSensor);
                 _logger.LogInformation($"Sensor {dto.SensorId} criado.");

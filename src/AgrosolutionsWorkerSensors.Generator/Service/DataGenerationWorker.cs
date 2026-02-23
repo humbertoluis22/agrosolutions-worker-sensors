@@ -1,36 +1,31 @@
-﻿using System;
-using System.Net.Http;
-using System.Net.Http.Json;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
-
-using AgrosolutionsWorkerSensors.Infrastructure.Data;
+﻿using System.Net.Http.Json;
 using AgrosolutionsWorkerSensors.Domain.Enums;
 using AgrosolutionsWorkerSensors.Generator.Dtos.SensorData;
-
+using AgrosolutionsWorkerSensors.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace AgrosolutionsWorkerSensors.Generator.Service
 {
-    public class DataGenerationWorker : BackgroundService
+    public class DataGenerationWorker(
+        IServiceProvider serviceProvider,
+        IHttpClientFactory httpClientFactory,
+        IConfiguration config,
+        ILogger<DataGenerationWorker> logger
+        ) : BackgroundService
     {
-        private readonly IServiceProvider _serviceProvider;
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly ILogger<DataGenerationWorker> _logger;
+        private readonly IServiceProvider _serviceProvider = serviceProvider;
+        private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
+        private readonly ILogger<DataGenerationWorker> _logger = logger;
         private readonly Random _random = new();
-        private readonly int _intervalSeconds;
-
-        public DataGenerationWorker(IServiceProvider serviceProvider, IHttpClientFactory httpClientFactory, IConfiguration config, ILogger<DataGenerationWorker> logger)
-        {
-            _serviceProvider = serviceProvider;
-            _httpClientFactory = httpClientFactory;
-            _logger = logger;
-            _intervalSeconds = config.GetValue<int>("GenerationSettings:IntervalSeconds", 5);
-        }
+        private readonly int _intervalSeconds = config.GetValue<int>("GenerationSettings:IntervalSeconds", 5);
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            _logger.LogInformation(
+                "Iniciando Worker de Geração de Dados. Intervalo: {Interval}s.",
+                _intervalSeconds
+            );
+
             var timer = new PeriodicTimer(TimeSpan.FromSeconds(_intervalSeconds));
 
             while (await timer.WaitForNextTickAsync(stoppingToken))
@@ -54,7 +49,20 @@ namespace AgrosolutionsWorkerSensors.Generator.Service
             // Busca sensores ativos (para não estourar memória, em prod use paginação)
             var sensors = await dbContext.Sensors.Where(s => s.StatusSensor).ToListAsync(token);
 
+            if (!sensors.Any())
+            {
+                _logger.LogInformation("Nenhum sensor ativo encontrado. Aguardando próximo ciclo.");
+                return;
+            }
+
+            _logger.LogInformation(
+                "Iniciando ciclo de geração. {Count} sensor(es) ativo(s) encontrado(s).",
+                sensors.Count
+            );
+
             var client = _httpClientFactory.CreateClient("ApiRaw");
+            int success = 0;
+            int failures = 0;
 
             foreach (var sensor in sensors)
             {
@@ -66,14 +74,39 @@ namespace AgrosolutionsWorkerSensors.Generator.Service
                     SensorId = sensor.SensorId,
                     Data = dataPayload,
                     TypeSensor = sensor.TypeSensor,
-                    TimeStamp = DateTime.UtcNow
+                    TimeStamp = DateTime.UtcNow,
                 };
 
-                var response = await client.PostAsJsonAsync("/api/ingestion/sensor", request, token);
+                var response = await client.PostAsJsonAsync(
+                    "/api/ingestion/sensor",
+                    request,
+                    token
+                );
 
-                if (!response.IsSuccessStatusCode)
-                    _logger.LogWarning($"Falha ao enviar dados do sensor {sensor.SensorId}. Status: {response.StatusCode}");
+                if (response.IsSuccessStatusCode)
+                {
+                    success++;
+                    _logger.LogDebug(
+                        "Dados enviados com sucesso para o sensor {SensorId}.",
+                        sensor.SensorId
+                    );
+                }
+                else
+                {
+                    failures++;
+                    _logger.LogWarning(
+                        "Falha ao enviar dados do sensor {SensorId}. Status: {StatusCode}.",
+                        sensor.SensorId,
+                        response.StatusCode
+                    );
+                }
             }
+
+            _logger.LogInformation(
+                "Ciclo concluído. Sucesso: {Success} | Falhas: {Failures}.",
+                success,
+                failures
+            );
         }
 
         private object GenerateDummyData(SensorType type)
@@ -83,11 +116,11 @@ namespace AgrosolutionsWorkerSensors.Generator.Service
                 SensorType.Solo => new SoloData(
                     Umidade: Math.Round(_random.NextDouble() * 100, 2),
                     Ph: Math.Round(_random.NextDouble() * 14, 1),
-                     NutrientesData: new NutrientesData(
-                            Nitrogenio: Math.Round(_random.NextDouble() * 50, 2),
-                            Fosforo: Math.Round(_random.NextDouble() * 50, 2),
-                            Potassio: Math.Round(_random.NextDouble() * 50, 2)
-                        )
+                    NutrientesData: new NutrientesData(
+                        Nitrogenio: Math.Round(_random.NextDouble() * 50, 2),
+                        Fosforo: Math.Round(_random.NextDouble() * 50, 2),
+                        Potassio: Math.Round(_random.NextDouble() * 50, 2)
+                    )
                 ),
                 SensorType.Silos => new SiloData(
                     NivelPreenchimento: Math.Round(_random.NextDouble() * 100, 2),
@@ -102,7 +135,7 @@ namespace AgrosolutionsWorkerSensors.Generator.Service
                     ChuvaUltimaHora: Math.Round(_random.NextDouble() * 50, 2),
                     PontoOrvalho: Math.Round(10 + _random.NextDouble() * 10, 2)
                 ),
-                _ => new { }
+                _ => new { },
             };
         }
     }
